@@ -13,7 +13,7 @@ df = spark.read.parquet(readPath)
     .repartition("year", "month", "day")
     .write
     .format("parquet")
-    .mode("overwrite")
+    .mode("append")
     .option("compression", "snappy")
     .partitionBy("year", "month", "day")
     .save(whritePath)
