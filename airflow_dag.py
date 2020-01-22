@@ -1,6 +1,8 @@
 import airflow
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
+from airflow.contrib.operators.databricks_operator import DatabricksSubmitRunOperator
+from airflow.contrib.operators.aws_athena_operator import AWSAthenaOperator
 from datetime import timedelta, datetime
 
 #py script athena.py supposed to be saved in airflow/dags/jobs/amplitude_feed directory
@@ -41,12 +43,20 @@ etl_cluster = {
 }
 
 #set path to repartition.py file in Databricks catalog
-process_data = {
+notebook_params = {
     'new_cluster': etl_cluster,
     'notebook_task': {'notebook_path': '/path_to_file_in_databricks/repartition'}
 }
 
-repair_partition = PythonOperator(
+run_process_data = DatabricksSubmitRunOperator(
+    task_id='process_data',
+    json=notebook_params,
+    retries=2,
+    dag=dag)
+
+
+### V1 with PythonOperator which executes run_add_partitions func from athena.py 
+run_repair_partition = PythonOperator(
     task_id="repair_partition",
     dag=dag,
     python_callable=run_add_partitions,
@@ -54,8 +64,15 @@ repair_partition = PythonOperator(
     provide_context=True,
 )
 
+### V2 with AWSAthenaOperator
+run_repair_partition = AWSAthenaOperator(
+        task_id='repair_partition',
+        query='MSCK REPAIR TABLE amplitude_feed',
+        output_location='s3://my-bucket/my-path/',
+        database='my_database'
+    )
 
 (
-    process_data >>
-    repair_partition
+    run_process_data >>
+    run_repair_partition
 )
