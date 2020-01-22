@@ -8,35 +8,7 @@ query_output = 's3://platform-prd-my-athena-output-bucket/outputs'
 queryparams = {}
 queryparams['execution_id']=''
 athena = boto3.client('athena')
-
-# functions
-# queryparams is mutable, so that execution_id has to be returned to the caller for further processing
-
-def run_athena_query (query, queryparams):
-    print "Executing query:\n{0}".format(query)
-    response = athena.start_query_execution(
-        QueryString=ddl_query,
-        ResultConfiguration={
-            'OutputLocation': query_output
-        }
-    )
-    execution_id = response['QueryExecutionId']
-    queryparams['execution_id'] = execution_id
-    status = ''
-    while True:
-        stats = athena.get_query_execution(QueryExecutionId=execution_id)
-        status = stats['QueryExecution']['Status']['State']
-        if status in ['SUCCEEDED', 'FAILED', 'CANCELLED']:
-            return status
-        time.sleep(0.2)  # 200ms
-
-# Print the results of the query execution
-def print_results(execution_id):
-    results = athena.get_query_results(QueryExecutionId=execution_id)
-    print (json.dumps(results, sort_keys=True, indent=4))
-
-def main():
-    query = '''
+amplitude_feed_ddl = '''
         CREATE TABLE IF NOT EXISTS amplitude_feed (
             $schema               LONG,
             adid                  STRING,
@@ -83,15 +55,55 @@ def main():
         tblproperties ("parquet.compress"="SNAPPY");
         ;
     '''
-    
+
+# functions
+# queryparams is mutable, so that execution_id has to be returned to the caller for further processing
+
+def run_athena_query (query, queryparams):
+    print ("Executing query:\n{0}".format(query))
+    response = athena.start_query_execution(
+        QueryString=query,
+        ResultConfiguration={
+            'OutputLocation': query_output
+        }
+    )
+    execution_id = response['QueryExecutionId']
+    queryparams['execution_id'] = execution_id
+    status = ''
+    while True:
+        stats = athena.get_query_execution(QueryExecutionId=execution_id)
+        status = stats['QueryExecution']['Status']['State']
+        if status in ['SUCCEEDED', 'FAILED', 'CANCELLED']:
+            return status
+        time.sleep(0.2)  # 200ms
+
+# Print the results of the query execution
+def print_results(execution_id):
+    results = athena.get_query_results(QueryExecutionId=execution_id)
+    print (json.dumps(results, sort_keys=True, indent=4))
+
+def run_create_table(ddl_query):  
     queryparams['execution_id']=''
     
-    ret = run_athena_query(query, queryparams)
+    ret = run_athena_query(ddl_query, queryparams)
     if ret !=  'SUCCEEDED' :
-        print ret
+        print (ret)
         sys.exit(1)
     print_results(queryparams['execution_id'])
 
+def run_add_partitions(tablename):
+    queryparams['execution_id']=''
+    query = 'MSCK REPAIR TABLE {0}'.format(tablename)
+    
+    ret = run_athena_query(query, queryparams)
+    if ret !=  'SUCCEEDED' :
+        print (ret)
+        sys.exit(1)
+    print_results(queryparams['execution_id'])    
+    
+def main():
+    run_create_table(amplitude_feed_ddl)
+    run_add_partitions('amplitude_feed')
 
 if __name__ == "__main__":
     main()
